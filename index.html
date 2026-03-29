@@ -3431,8 +3431,10 @@ function buildPwaManifest(){
       const url=c.toDataURL('image/png');
       // Store icon data URL in localStorage for persistence across sessions
       try { localStorage.setItem('rjap_icon_url', url); } catch(e) {}
+      // Use absolute URLs so PWA opens correctly on GitHub Pages subfolders
+      const appBase = location.href.replace(/index\.html.*$/, '').replace(/\?.*$/, '');
       const mf={name:'Radha Naam Jap',short_name:'Radha Jap',description:'Jai Shri Radha 🌸',
-        start_url:'./index.html',scope:'./',display:'standalone',orientation:'portrait-primary',
+        start_url: appBase + 'index.html', scope: appBase, display:'standalone',orientation:'portrait-primary',
         background_color:'#060D1F',theme_color:'#060D1F',
         icons:[
           {src:url,sizes:'512x512',type:'image/png',purpose:'any'},
