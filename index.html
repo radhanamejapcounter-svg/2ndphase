@@ -2836,6 +2836,7 @@ function editSankalpTarget(id) {
   sk.target = newTarget;
   App.save(); fbDebouncedPush(); renderSankalpas();
   toast('Target updated to '+newTarget+' cycles 🙏');
+}
 
 function adjustSankalpCycles(id, sign) {
   const sk = (App.S.sankalpas||[]).find(s=>s.id===id);
@@ -2845,22 +2846,15 @@ function adjustSankalpCycles(id, sign) {
   const amt = parseInt(el.value)||0;
   if (amt < 1) { toast("Enter a valid number"); return; }
   if (sk.startCycles === null) { toast("Wish not yet active"); return; }
-  const tk = App.S.tk;
-  const taps = amt * 28;
   if (sign === "add") {
     sk.startCycles = sk.startCycles - amt;
-    // Also add to actual h28 taps so all-time cycle count updates
-    App.S.h28[tk] = (App.S.h28[tk]||0) + taps;
   } else {
     const prog = Math.max(0, getTotalCycles28() - sk.startCycles);
     if (amt > prog) { toast("Cannot deduct more than current progress ("+prog+")"); return; }
     sk.startCycles = sk.startCycles + amt;
-    // Also deduct from actual h28 taps so all-time cycle count updates
-    const cur = App.S.h28[tk]||0;
-    App.S.h28[tk] = Math.max(0, cur - taps);
   }
   el.value = "";
-  App.save(); fbDebouncedPush(); gdSyncPush(); renderSankalpas(); render28StatsPanel(); u28(); uStats();
+  App.save(); fbDebouncedPush(); renderSankalpas();
   toast((sign==="add"?"Added ":"Deducted ")+amt+" cycle(s) 🙏");
   const active2 = getActiveSankalp();
   if (active2 && active2.startCycles !== null) {
