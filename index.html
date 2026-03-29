@@ -341,7 +341,7 @@ body::before{content:'';position:fixed;top:50%;left:50%;transform:translate(-50%
 .sk-panel{overflow:hidden;max-height:0;transition:max-height 0.38s ease;background:rgba(232,51,109,0.04);border-bottom:1px solid rgba(232,51,109,0.18);}
 .sk-panel.open{max-height:70vh;overflow-y:auto;}
 .sk-panel-inner{padding:10px 14px 14px;}
-.n28stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;}
+.n28stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
 .n28tz{flex:1;background:radial-gradient(ellipse at center,rgba(34,85,204,0.22) 0%,rgba(6,13,31,0.6) 100%);
   border:1px solid rgba(74,144,226,0.2);border-radius:22px;
   display:flex;align-items:center;justify-content:center;flex-direction:column;
@@ -1419,12 +1419,13 @@ const App = {
     if (!this.S.timer28History) this.S.timer28History = {};
     if (!this.S.sankalpas) this.S.sankalpas = [];
     if (!this.S.occasions) this.S.occasions = {};
-    // Load malaLog — only use if it's from today, otherwise start fresh
+    // Load malaLog — only use if it's from today AND today has actual jap count
     const malaLogRec = await this.dbGet('malaLog', 'today');
-    if (malaLogRec && malaLogRec.date === this.S.tk) {
+    const todayJap = this.S.history[this.S.tk] || 0;
+    if (malaLogRec && malaLogRec.date === this.S.tk && todayJap > 0) {
       this.S.malaLog = malaLogRec.log || [];
     } else {
-      // New day — discard any previous log entirely and push empty to Firebase
+      // New day or no jap done today — discard any previous log entirely
       this.S.malaLog = [];
       await this.dbPut('malaLog', 'today', { date: this.S.tk, log: [] });
       // Force push empty log to Firebase so stale cloud data is overwritten
@@ -2564,14 +2565,16 @@ function fbApplyRemote(d) {
   if ('customSt' in d) App.S.customSt = JSON.parse(JSON.stringify(d.customSt || []));
   if ('sankalpas' in d) App.S.sankalpas = JSON.parse(JSON.stringify(d.sankalpas || []));
   if ('occasions' in d) App.S.occasions = JSON.parse(JSON.stringify(d.occasions || {}));
-  // Only apply malaLog from Firebase if it belongs to today
+  // Only apply malaLog from Firebase if it belongs to today AND local today has jap
   if ('malaLog' in d) {
     const remoteMalaLog = d.malaLog || [];
     const remoteMalaDate = d.malaLogDate || null;
-    if (remoteMalaDate === App.S.tk) {
+    const localTodayJap = App.S.history[App.S.tk] || 0;
+    if (remoteMalaDate === App.S.tk && localTodayJap > 0) {
       App.S.malaLog = JSON.parse(JSON.stringify(remoteMalaLog));
     } else {
-      // Remote log is from a different day — keep local today's log untouched
+      // Remote log is stale or no jap done today — clear it
+      App.S.malaLog = [];
     }
   }
   if (d.ms) App.S.ms = d.ms;

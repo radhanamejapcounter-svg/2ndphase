@@ -2,7 +2,7 @@
 // Radha Naam Jap — Service Worker
 // Update CACHE version when index.html changes
 // ═══════════════════════════════════════════════
-const CACHE = 'radha-jap-v9';  // bumped v8 → v9 (fixed accounts.google.com bypass for GSI auth)
+const CACHE = 'radha-jap-v10';  // bumped v9 → v10 (bug fixes: cycle count, mala log, mala stat removed)
 
 const PRECACHE = [
   './index.html',
