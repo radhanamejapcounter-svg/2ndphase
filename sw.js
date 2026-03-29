@@ -1,15 +1,11 @@
 // ═══════════════════════════════════════════════
 // Radha Naam Jap — Service Worker
-// v11: fixed openWindow path, navigation fallback,
-//      index.html cache-busting, scope-relative URLs
+// Update CACHE version when index.html changes
 // ═══════════════════════════════════════════════
-const CACHE = 'radha-jap-v11';
+const CACHE = 'radha-jap-v9';  // bumped v8 → v9 (fixed accounts.google.com bypass for GSI auth)
 
-// Derive the app's base path from the SW location
-// Works on any host: localhost, GitHub Pages subfolder, custom domain
-const SW_SCOPE = self.registration.scope;
-
-const PRECACHE_EXTERNALS = [
+const PRECACHE = [
+  './index.html',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js',
@@ -18,6 +14,9 @@ const PRECACHE_EXTERNALS = [
   'https://apis.google.com/js/api.js'
 ];
 
+// Firebase & Google auth must pass through — their SDKs handle offline internally
+// accounts.google.com is listed broadly so ALL GSI runtime auth calls are bypassed,
+// not just the /o/oauth2 path (fixes Google Sign-In interception bug).
 const BYPASS = [
   'firestore.googleapis.com',
   'identitytoolkit.googleapis.com',
@@ -26,7 +25,7 @@ const BYPASS = [
   'firebase.googleapis.com',
   'firebaseio.com',
   'oauth2.googleapis.com',
-  'accounts.google.com'
+  'accounts.google.com'   // broadened from /o/oauth2 — covers all GSI auth traffic
 ];
 
 // ── Install: pre-cache critical assets ──
@@ -34,10 +33,9 @@ self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE).then(cache =>
-      Promise.allSettled([
-        cache.add(SW_SCOPE + 'index.html').catch(() => {}),
-        ...PRECACHE_EXTERNALS.map(url => cache.add(url).catch(() => {}))
-      ])
+      Promise.allSettled(
+        PRECACHE.map(url => cache.add(url).catch(() => {}))
+      )
     )
   );
 });
@@ -47,65 +45,49 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       .then(keys =>
-        Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+        Promise.all(
+          keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+        )
       )
       .then(() => self.clients.claim())
   );
 });
 
-// ── Fetch ──
+// ── Fetch: stale-while-revalidate strategy ──
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
 
   const url = new URL(e.request.url);
 
-  // Bypass Firebase & Google auth
+  // Let Firebase & Google auth requests pass through untouched
   if (BYPASS.some(h => url.href.includes(h))) return;
 
-  const scopePath = new URL(SW_SCOPE).pathname;
-  const isNavOrIndex =
-    e.request.mode === 'navigate' ||
-    url.pathname === scopePath ||
-    url.pathname === scopePath + 'index.html' ||
-    url.pathname.endsWith('/');
-
-  // Navigation / index.html: network-first so app always opens fresh
-  if (isNavOrIndex) {
-    e.respondWith(
-      fetch(e.request, { cache: 'no-cache' })
-        .then(resp => {
-          if (resp && resp.status === 200) {
-            caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
-          }
-          return resp;
-        })
-        .catch(() =>
-          caches.match(SW_SCOPE + 'index.html')
-            .then(cached => cached || new Response('Offline', { status: 503 }))
-        )
-    );
-    return;
-  }
-
-  // Everything else: stale-while-revalidate
   e.respondWith(
     caches.match(e.request).then(cached => {
-      const networkFetch = fetch(e.request)
-        .then(resp => {
-          if (resp && resp.status === 200 && resp.type !== 'error') {
-            caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
-          }
-          return resp;
-        })
-        .catch(() => null);
+      // Always fetch fresh in background to keep cache updated
+      const networkFetch = fetch(e.request).then(resp => {
+        if (resp && resp.status === 200 && resp.type !== 'error') {
+          const clone = resp.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      }).catch(() => null);
 
+      // Serve cache instantly if available, update in background
       if (cached) return cached;
-      return networkFetch.then(resp => resp || new Response('Offline', { status: 503 }));
+
+      // Not cached — wait for network
+      return networkFetch.then(resp => {
+        if (resp) return resp;
+        // Offline fallback: return main HTML for navigation requests
+        if (e.request.mode === 'navigate') return caches.match('./index.html');
+        return new Response('Offline', { status: 503 });
+      });
     })
   );
 });
 
-// ── Show notification (from page) ──
+// ── Handle notification requests from the page ──
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SHOW_NOTIFICATION') {
     e.waitUntil(
@@ -119,17 +101,15 @@ self.addEventListener('message', e => {
   }
 });
 
-// ── Notification tap: open/focus app at correct URL ──
+// ── Handle notification tap — bring app to focus ──
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    clients.matchAll({ type: 'window' }).then(list => {
       for (const client of list) {
-        if (client.url.startsWith(SW_SCOPE) && 'focus' in client) {
-          return client.focus();
-        }
+        if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow(SW_SCOPE + 'index.html');
+      if (clients.openWindow) return clients.openWindow('/');
     })
   );
 });

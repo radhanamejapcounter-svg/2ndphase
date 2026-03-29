@@ -1980,17 +1980,8 @@ function addManualJap() {
   const n = parseInt(document.getElementById('manualJapIn').value) || 0;
   if (n <= 0) { toast('Please enter a number > 0'); return; }
   App.S.history[App.S.tk] = (App.S.history[App.S.tk] || 0) + n;
-  // Update mala count without pushing fake durations to malaLog
   const nm = Math.floor(App.gTod() / (App.S.ms || 108));
-  if (nm > App.lmc) {
-    App.lmc = nm;
-    // Flash mala indicator and vibrate, but do NOT push to malaLog (no real timer duration)
-    const f = document.getElementById('mf');
-    if (f) { f.classList.add('show'); setTimeout(() => f.classList.remove('show'), 2800); }
-    if (App.S.cfg && App.S.cfg.sound) playSynthBell();
-    App.vib([200, 80, 200, 80, 300]);
-    App.silentMonkBackup();
-  }
+  if (nm > App.lmc) { App.lmc = nm; App.malaOk(); }
   App.save(); App.ua(); fbDebouncedPush();
   document.getElementById('manualJapIn').value = '';
   document.getElementById('manualMalaPreview').textContent = '0';
@@ -2847,45 +2838,32 @@ function editSankalpTarget(id) {
   toast('Target updated to '+newTarget+' cycles 🙏');
 }
 
-// ── Manually add or deduct cycles for a specific wish ──
-function manualAdjCycles(id, sign) {
-  const inp = document.getElementById('sk-cadj-'+id);
-  const n = parseInt(inp?.value)||0;
-  if (n < 1) { toast('Enter number of cycles to adjust'); return; }
+function adjustSankalpCycles(id, sign) {
   const sk = (App.S.sankalpas||[]).find(s=>s.id===id);
   if (!sk) return;
-
-  if (sign > 0) {
-    // ADD: shift startCycles back so progress increases
-    if (sk.startCycles === null) {
-      // Wish not yet started — activate it now at current total minus n
-      sk.startCycles = Math.max(0, getTotalCycles28() - n);
-      sk.startDate = sk.startDate || App.S.tk;
-    } else {
-      sk.startCycles = Math.max(0, sk.startCycles - n);
-    }
-    const prog = getSankalpProgressById(id, null);
-    if (prog >= sk.target) {
-      sk.done = true; sk.doneDate = App.S.tk;
-      activateNextSankalp();
-      App.save(); fbDebouncedPush(); renderSankalpas();
-      toast('🌟 Wish fulfilled! Jai Radhe! 🙏');
-    } else {
-      App.save(); fbDebouncedPush(); renderSankalpas();
-      toast('➕ Added ' + n + ' cycle' + (n > 1 ? 's' : '') + ' to wish 🌸');
-    }
+  const el = document.getElementById("sk-adj-"+id);
+  if (!el) return;
+  const amt = parseInt(el.value)||0;
+  if (amt < 1) { toast("Enter a valid number"); return; }
+  if (sk.startCycles === null) { toast("Wish not yet active"); return; }
+  if (sign === "add") {
+    sk.startCycles = sk.startCycles - amt;
   } else {
-    // DEDUCT: shift startCycles forward so progress decreases
-    if (sk.startCycles === null) { toast('Wish not started yet — nothing to deduct'); return; }
-    const currentProg = getSankalpProgressById(id, null);
-    if (n > currentProg) { toast('Cannot deduct more than current progress (' + currentProg + ' cycles)'); return; }
-    sk.startCycles = sk.startCycles + n;
-    App.save(); fbDebouncedPush(); renderSankalpas();
-    toast('➖ Deducted ' + n + ' cycle' + (n > 1 ? 's' : '') + ' from wish');
+    const prog = Math.max(0, getTotalCycles28() - sk.startCycles);
+    if (amt > prog) { toast("Cannot deduct more than current progress ("+prog+")"); return; }
+    sk.startCycles = sk.startCycles + amt;
   }
-  if (inp) inp.value = '';
+  el.value = "";
+  App.save(); fbDebouncedPush(); renderSankalpas();
+  toast((sign==="add"?"Added ":"Deducted ")+amt+" cycle(s) 🙏");
+  const active2 = getActiveSankalp();
+  if (active2 && active2.startCycles !== null) {
+    const p2 = Math.max(0, getTotalCycles28() - active2.startCycles);
+    if (p2 >= active2.target) { active2.done = true; active2.doneDate = App.S.tk; activateNextSankalp(); renderSankalpas(); toast('🌟 Sankalp fulfilled! 🙏'); }
+  }
 }
 
+function renderSankalpas() {
   const el = document.getElementById('skList'); if (!el) return;
   const all = App.S.sankalpas||[];
   if (!all.length) { el.innerHTML = '<div class="sk-empty">No sankalpa yet 🌸</div>'; return; }
@@ -2907,12 +2885,11 @@ function manualAdjCycles(id, sign) {
         +'<input id="sk-edit-'+sk.id+'" type="number" min="'+Math.max(1,prog)+'" value="'+sk.target+'" style="width:64px;background:rgba(0,0,0,0.35);border:1px solid rgba(232,51,109,0.3);border-radius:7px;padding:5px 8px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
         +'<button class="sk-btn grn" onclick="editSankalpTarget(\''+sk.id+'\')">Save</button>'
         +'</div>'
-        // Add/Deduct cycles manually row (active wish)
-        +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:7px 9px;background:rgba(255,182,193,0.06);border:1px solid rgba(232,51,109,0.18);border-radius:8px">'
-        +'<span style="font-size:11px;color:var(--td);flex:1">🔄 Add / Deduct cycles:</span>'
-        +'<input id="sk-cadj-'+sk.id+'" type="number" min="1" placeholder="N" style="width:54px;background:rgba(0,0,0,0.35);border:1px solid rgba(232,51,109,0.3);border-radius:7px;padding:5px 7px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
-        +'<button class="sk-btn grn" onclick="manualAdjCycles(\''+sk.id+'\',1)">＋</button>'
-        +'<button class="sk-btn" style="color:var(--rl);border-color:rgba(232,51,109,0.35)" onclick="manualAdjCycles(\''+sk.id+'\',\u22121)">－</button>'
+        +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:7px 9px;background:rgba(255,255,255,0.04);border-radius:8px">'
+        +'<span style="font-size:11px;color:var(--td);flex:1">🔄 Adjust cycles:</span>'
+        +'<input id="sk-adj-'+sk.id+'" type="number" min="1" placeholder="0" style="width:54px;background:rgba(0,0,0,0.35);border:1px solid rgba(232,51,109,0.3);border-radius:7px;padding:5px 8px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
+        +'<button class="sk-btn" style="color:#4f4;border-color:rgba(0,255,0,0.3);font-size:11px" onclick="adjustSankalpCycles(\''+sk.id+'\',\'add\')">＋</button>'
+        +'<button class="sk-btn" style="color:#f55;border-color:rgba(255,68,68,0.3);font-size:11px" onclick="adjustSankalpCycles(\''+sk.id+'\',\'deduct\')">－</button>'
         +'</div>'
         +'<div class="sk-btns"><button class="sk-btn grn" onclick="fulfillSankalp(\''+sk.id+'\')">✓ Fulfilled</button>'
         +'<button class="sk-btn grey" onclick="deleteSankalp(\''+sk.id+'\')">✕</button></div>'
@@ -2928,12 +2905,11 @@ function manualAdjCycles(id, sign) {
         +'<input id="sk-edit-'+sk.id+'" type="number" min="1" value="'+sk.target+'" style="width:64px;background:rgba(0,0,0,0.35);border:1px solid rgba(74,144,226,0.25);border-radius:7px;padding:5px 8px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
         +'<button class="sk-btn grn" onclick="editSankalpTarget(\''+sk.id+'\')">Save</button>'
         +'</div>'
-        // Add/Deduct cycles manually row (queued wish)
-        +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:7px 9px;background:rgba(74,144,226,0.04);border:1px solid rgba(74,144,226,0.15);border-radius:8px">'
-        +'<span style="font-size:11px;color:var(--td);flex:1">🔄 Add / Deduct cycles:</span>'
-        +'<input id="sk-cadj-'+sk.id+'" type="number" min="1" placeholder="N" style="width:54px;background:rgba(0,0,0,0.35);border:1px solid rgba(74,144,226,0.25);border-radius:7px;padding:5px 7px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
-        +'<button class="sk-btn grn" onclick="manualAdjCycles(\''+sk.id+'\',1)">＋</button>'
-        +'<button class="sk-btn" style="color:var(--rl);border-color:rgba(232,51,109,0.35)" onclick="manualAdjCycles(\''+sk.id+'\',\u22121)">－</button>'
+        +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:7px 9px;background:rgba(255,255,255,0.04);border-radius:8px">'
+        +'<span style="font-size:11px;color:var(--td);flex:1">🔄 Adjust cycles:</span>'
+        +'<input id="sk-adj-'+sk.id+'" type="number" min="1" placeholder="0" style="width:54px;background:rgba(0,0,0,0.35);border:1px solid rgba(74,144,226,0.25);border-radius:7px;padding:5px 8px;color:var(--tl);font-size:13px;text-align:center;font-family:Inter,sans-serif">'
+        +'<button class="sk-btn" style="color:#4f4;border-color:rgba(0,255,0,0.3);font-size:11px" onclick="adjustSankalpCycles(\''+sk.id+'\',\'add\')">＋</button>'
+        +'<button class="sk-btn" style="color:#f55;border-color:rgba(255,68,68,0.3);font-size:11px" onclick="adjustSankalpCycles(\''+sk.id+'\',\'deduct\')">－</button>'
         +'</div>'
         +'<div class="sk-btns">'
         +(idx > 0 ? '<button class="sk-btn" style="color:var(--a2);border-color:rgba(74,144,226,0.4)" onclick="prioritizeSankalp(\''+sk.id+'\')">⬆ Prioritize</button>' : '')
@@ -3014,6 +2990,8 @@ function render28StatsPanel() {
   if (ea) ea.textContent = fmt28Short(allTime);
 }
 
+
+
 // Add/deduct cycles (1 cycle = 28 taps)
 // Live preview helpers
 function prev28Cycles(val) {
@@ -3083,6 +3061,7 @@ function adj28Time(sign) {
   App.save(); fbDebouncedPush();
   toast((sign>0?'Added ':'Deducted ')+m+'m '+s+'s 🙏');
 }
+
 
 // Reset 28 Names time
 function reset28Time(scope) {
@@ -3429,20 +3408,10 @@ function buildPwaManifest(){
       ctx.strokeStyle='rgba(255,215,0,0.55)';ctx.lineWidth=15;
       ctx.beginPath();ctx.arc(256,256,248,0,Math.PI*2);ctx.stroke();
       const url=c.toDataURL('image/png');
-      // Store icon data URL in localStorage for persistence across sessions
-      try { localStorage.setItem('rjap_icon_url', url); } catch(e) {}
-      // Use absolute URLs so PWA opens correctly on GitHub Pages subfolders
-      const appBase = location.href.replace(/index\.html.*$/, '').replace(/\?.*$/, '');
-      const mf={name:'Radha Naam Jap',short_name:'Radha Jap',description:'Jai Shri Radha 🌸',
-        start_url: appBase + 'index.html', scope: appBase, display:'standalone',orientation:'portrait-primary',
+      const mf={name:'Radha Naam Jap',short_name:'Radha Jap',description:'Jai Shri Radha',
+        start_url:'./index.html',scope:'./',display:'standalone',orientation:'portrait-primary',
         background_color:'#060D1F',theme_color:'#060D1F',
-        icons:[
-          {src:url,sizes:'512x512',type:'image/png',purpose:'any'},
-          {src:url,sizes:'512x512',type:'image/png',purpose:'maskable'},
-          {src:url,sizes:'192x192',type:'image/png',purpose:'any'}
-        ]};
-      // Remove any existing manifest link first
-      document.querySelectorAll('link[rel="manifest"]').forEach(l=>l.remove());
+        icons:[{src:url,sizes:'512x512',type:'image/png',purpose:'any maskable'},{src:url,sizes:'192x192',type:'image/png',purpose:'any maskable'}]};
       const blob=new Blob([JSON.stringify(mf)],{type:'application/manifest+json'});
       const lnk=document.createElement('link');lnk.rel='manifest';lnk.href=URL.createObjectURL(blob);document.head.appendChild(lnk);
       document.querySelectorAll('link[rel*="icon"],link[rel="apple-touch-icon"]').forEach(l=>l.remove());
