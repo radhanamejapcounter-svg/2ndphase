@@ -2,30 +2,31 @@
 // Radha Naam Jap — Service Worker
 // Update CACHE version when index.html changes
 // ═══════════════════════════════════════════════
-const CACHE = 'radha-jap-v10';  // bumped v9 → v10 (bug fixes: cycle count, mala log, mala stat removed)
+const CACHE = 'radha-jap-v50';  // v50: Lightened index.html, external CSS/lyrics
 
 const PRECACHE = [
   './index.html',
+  './styles.css',
+  './lyrics.json',
+  './guru.jpg',
+  './icon-192.png',
+  './icon-512.png',
+  './manifest.json',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js',
-  'https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi&family=Hind+Siliguri:wght@400;600;700&family=Cinzel+Decorative:wght@400;700&family=EB+Garamond:wght@400;600&family=Inter:wght@300;400;500;600&display=swap',
-  'https://accounts.google.com/gsi/client',
-  'https://apis.google.com/js/api.js'
+  'https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi&family=Inter:wght@300;400;500;600&family=Noto+Sans+Devanagari:wght@700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap',
+  'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js'
 ];
 
-// Firebase & Google auth must pass through — their SDKs handle offline internally
-// accounts.google.com is listed broadly so ALL GSI runtime auth calls are bypassed,
-// not just the /o/oauth2 path (fixes Google Sign-In interception bug).
+// Firebase auth must pass through — their SDKs handle offline internally
 const BYPASS = [
   'firestore.googleapis.com',
   'identitytoolkit.googleapis.com',
   'securetoken.googleapis.com',
   'firebaseinstallations.googleapis.com',
   'firebase.googleapis.com',
-  'firebaseio.com',
-  'oauth2.googleapis.com',
-  'accounts.google.com'   // broadened from /o/oauth2 — covers all GSI auth traffic
+  'firebaseio.com'
 ];
 
 // ── Install: pre-cache critical assets ──
@@ -59,12 +60,11 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(e.request.url);
 
-  // Let Firebase & Google auth requests pass through untouched
+  // Let Firebase auth requests pass through untouched
   if (BYPASS.some(h => url.href.includes(h))) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
-      // Always fetch fresh in background to keep cache updated
       const networkFetch = fetch(e.request).then(resp => {
         if (resp && resp.status === 200 && resp.type !== 'error') {
           const clone = resp.clone();
@@ -73,13 +73,10 @@ self.addEventListener('fetch', e => {
         return resp;
       }).catch(() => null);
 
-      // Serve cache instantly if available, update in background
       if (cached) return cached;
 
-      // Not cached — wait for network
       return networkFetch.then(resp => {
         if (resp) return resp;
-        // Offline fallback: return main HTML for navigation requests
         if (e.request.mode === 'navigate') return caches.match('./index.html');
         return new Response('Offline', { status: 503 });
       });
